@@ -1,5 +1,6 @@
 from datetime import datetime
-from sqlalchemy import String, Numeric, ForeignKey, DateTime, Boolean, Integer, func
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -11,11 +12,15 @@ class TrackedItem(Base):
     __tablename__ = "tracked_items"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    sku: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    sku: Mapped[str] = mapped_column(
+        String(64), unique=True, index=True, nullable=False
+    )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     category: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
     target_url: Mapped[str] = mapped_column(String(512), nullable=False)
-    css_selector: Mapped[str] = mapped_column(String(128), default=".price_color", nullable=False)
+    css_selector: Mapped[str] = mapped_column(
+        String(128), default=".price_color", nullable=False
+    )
     current_price: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
     previous_price: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     in_stock: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

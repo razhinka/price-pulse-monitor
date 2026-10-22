@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PricePulse — Мониторинг цен и товарная аналитика</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans">
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        <!-- Header -->
+        <header class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-slate-800">
+            <div>
+                <div class="flex items-center gap-3">
+                    <span class="px-2.5 py-1 text-xs font-semibold bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 rounded-full">
+                        FastAPI + AsyncPG + Redis
+                    </span>
+                    <span id="cache-badge" class="px-2.5 py-1 text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full">
+                        Redis Cache: Ready
+                    </span>
+                </div>
+                <h1 class="text-2xl md:text-3xl font-bold mt-2 tracking-tight">PricePulse Analytics</h1>
+                <p class="text-slate-400 text-sm">Автоматизированный мониторинг цен конкурентов и отслеживание прайс-индексов</p>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-3">
+                <button id="btn-scrape" onclick="runScraper()" class="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-sm font-medium rounded-lg shadow transition flex items-center gap-2">
+                    <span id="scrape-icon">🔄</span>
+                    <span id="scrape-text">Запустить обход цен</span>
+                </button>
+                <a href="/api/export/csv" class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium rounded-lg border border-slate-700 transition">
+                    📥 Выгрузить CSV (Excel)
+                </a>
+                <a href="/docs" target="_blank" class="px-3 py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-400 text-sm rounded-lg border border-slate-800 transition">
+                    Swagger API ↗
+                </a>
+            </div>
+        </header>
+
+        <!-- KPI Cards -->
+        <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 my-6">
+            <div class="bg-slate-900/90 border border-slate-800 p-5 rounded-xl">
+                <p class="text-slate-400 text-xs uppercase tracking-wider">Отслеживаемых SKU</p>
+                <p id="kpi-total" class="text-3xl font-bold mt-2">—</p>
+            </div>
+            <div class="bg-slate-900/90 border border-slate-800 p-5 rounded-xl">
+                <p class="text-slate-400 text-xs uppercase tracking-wider">Средняя цена по каталогу</p>
+                <p id="kpi-avg" class="text-3xl font-bold mt-2 text-indigo-400">—</p>
+            </div>
+            <div class="bg-slate-900/90 border border-slate-800 p-5 rounded-xl">
+                <p class="text-slate-400 text-xs uppercase tracking-wider">Снижение цены (Демпинг)</p>
+                <p id="kpi-drops" class="text-3xl font-bold mt-2 text-emerald-400">—</p>
+            </div>
+            <div class="bg-slate-900/90 border border-slate-800 p-5 rounded-xl">
+                <p class="text-slate-400 text-xs uppercase tracking-wider">Рост цены у конкурентов</p>
+                <p id="kpi-hikes" class="text-3xl font-bold mt-2 text-rose-400">—</p>
+            </div>
+        </section>
+
+        <!-- Main Grid: Chart + Add Form -->
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            <div class="lg:col-span-2 bg-slate-900/90 border border-slate-800 p-6 rounded-xl">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h2 class="text-lg font-semibold" id="chart-title">Динамика цены</h2>
+                        <p class="text-xs text-slate-400">Нажмите на любую позицию в таблице ниже для переключения графика</p>
+                    </div>
+                </div>
+                <div class="h-64">
+                    <canvas id="priceChart"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-slate-900/90 border border-slate-800 p-6 rounded-xl">
+                <h2 class="text-lg font-semibold mb-1">Добавить товар в мониторинг</h2>
+                <p class="text-xs text-slate-400 mb-4">Позиция сразу попадет в очередь асинхронного парсера</p>
+                <form id="add-item-form" onsubmit="submitNewItem(event)" class="space-y-3">
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">Артикул (SKU)</label>
+                        <input id="f-sku" type="text" required placeholder="GPU-RTX4080-16G" class="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">Название товара</label>
+                        <input id="f-title" type="text" required placeholder="Видеокарта GeForce RTX 4080 16GB" class="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs text-slate-400 mb-1">Категория</label>
+                            <input id="f-category" type="text" required value="Комплектующие ПК" class="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm focus:outline-none focus:border-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-slate-400 mb-1">Базовая цена (₽)</label>
+                            <input id="f-price" type="number" step="0.01" required placeholder="92990" class="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm focus:outline-none focus:border-indigo-500">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">URL страницы товара</label>
+                        <input id="f-url" type="url" required value="https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html" class="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <button type="submit" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium rounded-lg transition mt-2">
+                        ➕ Поставить на мониторинг
+                    </button>
+                </form>
+            </div>
+        </section>
+
+        <!-- Catalog Table -->
+        <section class="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+                <h2 class="text-lg font-semibold">Матрица отслеживаемых позиций</h2>
+                <span class="text-xs text-slate-400">Кликните по строке для просмотра истории цен</span>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="border-b border-slate-800 text-xs uppercase text-slate-400 bg-slate-950/50">
+                            <th class="py-3.5 px-4">SKU</th>
+                            <th class="py-3.5 px-4">Товар</th>
+                            <th class="py-3.5 px-4">Категория</th>
+                            <th class="py-3.5 px-4">Предыдущая цена</th>
+                            <th class="py-3.5 px-4">Текущая цена</th>
+                            <th class="py-3.5 px-4">Динамика</th>
+                            <th class="py-3.5 px-4">Обновлено</th>
+                        </tr>
+                    </thead>
+                    <tbody id="items-tbody" class="divide-y divide-slate-800/70 text-sm"></tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        let catalogItems = [];
+        let chartInstance = null;
+
+        const fmtRub = (val) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(val);
+
+        async function loadDashboard() {
+            const [metricsRes, itemsRes] = await Promise.all([
+                fetch('/api/metrics'),
+                fetch('/api/items')
+            ]);
+            const metrics = await metricsRes.json();
+            catalogItems = await itemsRes.json();
+
+            document.getElementById('kpi-total').textContent = metrics.total_items;
+            document.getElementById('kpi-avg').textContent = fmtRub(metrics.avg_price);
+            document.getElementById('kpi-drops').textContent = metrics.price_drops;
+            document.getElementById('kpi-hikes').textContent = metrics.price_hikes;
+
+            const badge = document.getElementById('cache-badge');
+            badge.textContent = metrics.cache_hit ? '⚡ Redis: CACHE HIT' : '🗄 DB Query -> Cached';
+
+            renderTable();
+            if (catalogItems.length > 0) {
+                renderChart(catalogItems[0]);
+            }
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('items-tbody');
+            tbody.innerHTML = '';
+
+            catalogItems.forEach((item) => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-800/60 cursor-pointer transition';
+                tr.onclick = () => renderChart(item);
+
+                const pct = item.price_change_pct;
+                let badgeHtml = `<span class="px-2 py-0.5 text-xs rounded bg-slate-800 text-slate-300">0.00%</span>`;
+                if (pct < 0) {
+                    badgeHtml = `<span class="px-2 py-0.5 text-xs font-medium rounded bg-emerald-500/20 text-emerald-400">▼ ${pct}%</span>`;
+                } else if (pct > 0) {
+                    badgeHtml = `<span class="px-2 py-0.5 text-xs font-medium rounded bg-rose-500/20 text-rose-400">▲ +${pct}%</span>`;
+                }
+
+                const updatedDate = new Date(item.updated_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+                tr.innerHTML = `
+                    <td class="py-3.5 px-4 font-mono text-xs text-indigo-400">${item.sku}</td>
+                    <td class="py-3.5 px-4 font-medium">${item.title}</td>
+                    <td class="py-3.5 px-4 text-slate-400">${item.category}</td>
+                    <td class="py-3.5 px-4 text-slate-400">${item.previous_price ? fmtRub(item.previous_price) : '—'}</td>
+                    <td class="py-3.5 px-4 font-semibold">${fmtRub(item.current_price)}</td>
+                    <td class="py-3.5 px-4">${badgeHtml}</td>
+                    <td class="py-3.5 px-4 text-xs text-slate-400">${updatedDate}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderChart(item) {
+            document.getElementById('chart-title').textContent = `История цены: ${item.title} (${item.sku})`;
+            const ctx = document.getElementById('priceChart').getContext('2d');
+
+            const labels = item.history.map(h => new Date(h.recorded_at).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }));
+            const prices = item.history.map(h => h.price);
+
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Цена (₽)',
+                        data: prices,
+                        borderColor: '#6366f1',
+                        backgroundColor: 'rgba(99, 102, 241, 0.15)',
+                        borderWidth: 2.5,
+                        pointBackgroundColor: '#818cf8',
+                        pointRadius: 4,
+                        fill: true,
+                        tension: 0.3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148, 163, 184, 0.1)' } },
+                        y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148, 163, 184, 0.1)' } }
+                    }
+                }
+            });
+        }
+
+        async function runScraper() {
+            const btn = document.getElementById('btn-scrape');
+            const text = document.getElementById('scrape-text');
+            btn.disabled = true;
+            text.textContent = 'Парсинг...';
+            try {
+                await fetch('/api/scrape', { method: 'POST' });
+                await loadDashboard();
+            } finally {
+                btn.disabled = false;
+                text.textContent = 'Запустить обход цен';
+            }
+        }
+
+        async function submitNewItem(e) {
+            e.preventDefault();
+            const payload = {
+                sku: document.getElementById('f-sku').value,
+                title: document.getElementById('f-title').value,
+                category: document.getElementById('f-category').value,
+                initial_price: parseFloat(document.getElementById('f-price').value),
+                target_url: document.getElementById('f-url').value,
+                css_selector: '.price_color'
+            };
+            const res = await fetch('/api/items', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (res.ok) {
+                document.getElementById('f-sku').value = '';
+                document.getElementById('f-title').value = '';
+                document.getElementById('f-price').value = '';
+                await loadDashboard();
+            } else {
+                const err = await res.json();
+                alert(err.detail || 'Ошибка при добавлении товара');
+            }
+        }
+
+        loadDashboard();
+    </script>
+</body>
+</html>

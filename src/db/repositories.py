@@ -1,9 +1,10 @@
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import select, func
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.db.models import TrackedItem, PriceHistory
+from src.db.models import PriceHistory, TrackedItem
 
 
 class ItemRepository:
@@ -11,7 +12,11 @@ class ItemRepository:
         self.session = session
 
     async def get_all_items(self, category: str | None = None) -> list[TrackedItem]:
-        stmt = select(TrackedItem).options(selectinload(TrackedItem.history)).order_by(TrackedItem.id)
+        stmt = (
+            select(TrackedItem)
+            .options(selectinload(TrackedItem.history))
+            .order_by(TrackedItem.id)
+        )
         if category:
             stmt = stmt.where(TrackedItem.category == category)
         result = await self.session.execute(stmt)
@@ -52,7 +57,9 @@ class ItemRepository:
         await self.session.refresh(item)
         return item
 
-    async def update_item_price(self, item_id: int, new_price: float, in_stock: bool = True) -> TrackedItem | None:
+    async def update_item_price(
+        self, item_id: int, new_price: float, in_stock: bool = True
+    ) -> TrackedItem | None:
         item = await self.get_by_id(item_id)
         if item is None:
             return None
@@ -122,7 +129,7 @@ async def seed_demo_catalog(session: AsyncSession) -> None:
         },
         {
             "sku": "MON-LG-27GR83Q-OLED",
-            "title": "Монитор 27\" LG UltraGear 240Hz QHD",
+            "title": 'Монитор 27" LG UltraGear 240Hz QHD',
             "category": "Периферия",
             "target_url": "https://books.toscrape.com/catalogue/sharp-objects_997/index.html",
             "prices": [45990.00, 45990.00, 44500.00, 44500.00],
